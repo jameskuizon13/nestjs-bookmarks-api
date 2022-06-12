@@ -35,7 +35,24 @@ export class AuthService {
     }
   }
 
-  signin() {
-    return 'I am sign in';
+  async signin(dto: AuthDto) {
+    try {
+      const user = await this.databaseService.user.findUnique({
+        where: { email: dto.email },
+      });
+
+      if (!user) {
+        throw new ForbiddenException('Incorrect credentials');
+      }
+
+      if (await argon.verify(user.hash, dto.password)) {
+        delete user.hash;
+        return user;
+      } else {
+        throw new ForbiddenException('Incorrect credentials');
+      }
+    } catch (error) {
+      throw error;
+    }
   }
 }
