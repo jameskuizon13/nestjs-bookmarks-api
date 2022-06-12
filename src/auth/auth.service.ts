@@ -1,4 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime';
 import * as argon from 'argon2';
 
@@ -7,9 +9,13 @@ import { AuthDto } from './dto';
 
 @Injectable({})
 export class AuthService {
-  constructor(private databaseService: DatabaseService) {}
+  constructor(
+    private configService: ConfigService,
+    private databaseService: DatabaseService,
+    private jwtService: JwtService,
+  ) {}
 
-  async signup(dto: AuthDto) {
+  async signup(dto: AuthDto): Promise<{ accessToken: string }> {
     // generate the password hash
     const hash = await argon.hash(dto.password);
 
@@ -21,9 +27,7 @@ export class AuthService {
         },
       });
 
-      delete user.hash;
-
-      return user;
+      return this.signToken(user.id, user.email);
     } catch (error) {
       if (error instanceof PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
@@ -35,7 +39,7 @@ export class AuthService {
     }
   }
 
-  async signin(dto: AuthDto) {
+  async signin(dto: AuthDto): Promise<{ accessToken: string }> {
     try {
       const user = await this.databaseService.user.findUnique({
         where: { email: dto.email },
@@ -46,13 +50,29 @@ export class AuthService {
       }
 
       if (await argon.verify(user.hash, dto.password)) {
-        delete user.hash;
-        return user;
+        return this.signToken(user.id, user.email);
       } else {
         throw new ForbiddenException('Incorrect credentials');
       }
     } catch (error) {
       throw error;
     }
+  }
+
+  async signToken(
+    userId: string,
+    email: string,
+  ): Promise<{ accessToken: string }> {
+    const payload = {
+      sub: userId,
+      email,
+    };
+
+    return {
+      accessToken: await this.jwtService.signAsync(payload, {
+        expiresIn: '15m',
+        secret: this.configService.get('JWT_SECRET'),
+      }),
+    };
   }
 }
